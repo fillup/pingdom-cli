@@ -3,9 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 	"strings"
-	"text/tabwriter"
+	"sync"
 )
 
 // UptimeCommand - Struct to attach cli.Command to for uptime subcommand
@@ -27,9 +26,7 @@ func (c *UptimeCommand) Run(args []string) int {
 		return 1
 	}
 
-	uptimeByCheck := map[string]string{}
-
-	// cmdargs := ArgMapFromArray(args, c.GetArgMap())
+	//uptimeByCheck := map[string]string{}
 
 	checksList := ListChecks(tags)
 
@@ -42,18 +39,24 @@ func (c *UptimeCommand) Run(args []string) int {
 	fmt.Printf("To:   %s\n", periodTo)
 	fmt.Println("")
 
-	const padding = 2
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, padding, ' ', 0)
-	fmt.Fprintln(w, "Check\tUptime\t")
+	var wg sync.WaitGroup
+	wg.Add(len(checksList.Checks))
+
+	fmt.Println("Check\tUptime\t")
 	for _, v := range checksList.Checks {
-		summaryAverage := GetSummaryAverage(v.ID, timePeriod.from, timePeriod.to)
-		uptimeByCheck[v.Name] = CalcUptimePercent(summaryAverage.Summary.Status.Totaldown, summaryAverage.Summary.Status.Totalup)
-		fmt.Fprintln(w, fmt.Sprintf("%s\t%s\t", v.Name, uptimeByCheck[v.Name]))
+		go trackCheckAverage(v.ID, v.Name, &timePeriod, &wg)
 	}
 
-	w.Flush()
 	fmt.Println("")
+	wg.Wait()
 	return 0
+}
+
+func trackCheckAverage(id int, name string, timePeriod *Period, wg *sync.WaitGroup) {
+	summaryAverage := GetSummaryAverage(id, timePeriod.from, timePeriod.to)
+	uptime := CalcUptimePercent(summaryAverage.Summary.Status.Totaldown, summaryAverage.Summary.Status.Totalup)
+	fmt.Println(fmt.Sprintf("%s\t%s", name, uptime))
+	wg.Done()
 }
 
 // Help - Return Help information
